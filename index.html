@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>달 드론 개념설계 시연</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Space+Grotesk:wght@300;400;600&display=swap');
+
+    :root {
+      --bg:      #030810;
+      --panel:   rgba(4, 18, 38, 0.88);
+      --border:  rgba(40, 140, 255, 0.25);
+      --accent:  #2888ff;
+      --orange:  #ff7c20;
+      --blue:    #3a8eff;
+      --green:   #20d080;
+      --warn:    #ffb020;
+      --crit:    #ff3838;
+      --dim:     #3a5070;
+      --text:    #c8dff0;
+      --muted:   #4a6888;
+      --mono:    'JetBrains Mono', monospace;
+      --sans:    'Space Grotesk', sans-serif;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ── 3D Canvas ─────────────────────────────────────────────────── */
+
+    #canvas-wrap { position: fixed; inset: 0; }
+
+    #canvas-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* ── Drone Status Panels ───────────────────────────────────────── */
+
+    #drone-panels {
+      position: fixed;
+      top: 12px; right: 12px;
+      width: 210px;
+      max-height: calc(100vh - 76px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      pointer-events: none;
+    }
+
+    .drone-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 7px 9px 8px;
+      font-size: 10.5px;
+      transition: opacity 0.3s, border-color 0.3s;
+    }
+
+    .drone-panel.phase1 { border-left: 2px solid var(--orange); }
+
+    .drone-panel.phase2 { border-left: 2px solid var(--blue); }
+
+    .drone-panel.active { border-color: rgba(40,136,255,0.5); opacity: 1 !important; }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .panel-name { font-weight: 600; letter-spacing: 0.04em; font-size: 11px; }
+
+    .panel-badge {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.07);
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    .panel-badge.thrust  { background: rgba(255,120,30,0.2);  color: var(--orange); }
+
+    .panel-badge.imaging { background: rgba(32,208,128,0.2);  color: var(--green); }
+
+    .panel-badge.charge  { background: rgba(58,142,255,0.15); color: var(--blue); }
+
+    /* ── Metric Row ──────────────────────────────────────────────── */
+
+    .metric { margin-bottom: 5px; }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+
+    .metric-label { color: var(--muted); }
+
+    .metric-value { color: var(--text); }
+
+    .metric-value.warn { color: var(--warn); }
+
+    .metric-value.crit { color: var(--crit); }
+
+    .bar-track {
+      height: 4px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 2px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.12s linear;
+    }
+
+    .bar-temp     { background: linear-gradient(90deg, #2050c0, #ff7c20); }
+
+    .bar-battery  { background: linear-gradient(90deg, #ff3838 0%, #ffb020 40%, #20d080 80%); }
+
+    .bar-prop     { background: var(--accent); }
+
+    .flow-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9.5px;
+      color: var(--muted);
+    }
+
+    .flow-pos { color: #20d080; }
+
+    .flow-neg { color: #ff7c20; }
+
+    /* ── Subtitle ──────────────────────────────────────────────────── */
+
+    #subtitle {
+      position: fixed;
+      bottom: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(2, 10, 24, 0.82);
+      border: 1px solid rgba(40,136,255,0.2);
+      padding: 8px 22px;
+      border-radius: 5px;
+      font-family: var(--sans);
+      font-size: 15px;
+      text-align: center;
+      max-width: 680px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.35s;
+      letter-spacing: 0.01em;
+    }
+
+    #subtitle.on { opacity: 1; }
+
+    /* ── Playback Bar ──────────────────────────────────────────────── */
+
+    #playback {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 58px;
+      background: rgba(2, 8, 20, 0.94);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 10px;
+    }
+
+    .pb-btn {
+      background: rgba(40,136,255,0.1);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 14px;
+      width: 30px; height: 28px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .pb-btn:hover  { background: rgba(40,136,255,0.22); }
+
+    .pb-btn:active { background: rgba(40,136,255,0.35); }
+
+    #time-disp {
+      font-size: 11px;
+      color: var(--accent);
+      min-width: 88px;
+      text-align: center;
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+
+    #scrub-wrap {
+      flex: 1;
+      position: relative;
+      height: 20px;
+      display: flex;
+      align-items: center;
+    }
+
+    #scrub {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    #scrub::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(40,136,255,0.5);
+    }
+
+    #scrub-progress {
+      position: absolute;
+      left: 0; top: 50%; height: 4px;
+      transform: translateY(-50%);
+      background: linear-gradient(90deg, var(--accent), rgba(40,136,255,0.5));
+      border-radius: 2px;
+      pointer-events: none;
+      width: 0%;
+    }
+
+    #speed-sel {
+      background: rgba(2, 8, 20, 0.9);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* ── Loading Screen ────────────────────────────────────────────── */
+
+    #loading {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      gap: 16px;
+    }
+
+    #loading h1 {
+      font-family: var(--sans);
+      font-size: 20px;
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    #loading .bar {
+      width: 320px; height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+    }
+
+    #loading .bar-inner {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 2px;
+      transition: width 0.2s;
+    }
+
+    #loading .status {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    #loading.gone { display: none; }
+
+    /* ── Mission Overlay (top-left) ─────────────────────────────────── */
+
+    #mission-info {
+      position: fixed;
+      top: 12px; left: 14px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      pointer-events: none;
+      line-height: 1.8;
+    }
+
+    #mission-info strong { color: rgba(40,136,255,0.7); font-weight: 400; }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://unpkg.com/three@0.164.1/build/three.module.js",
+    "three/addons/":  "https://unpkg.com/three@0.164.1/examples/jsm/"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-Dnwgp4vs.js"></script>
+</head>
+<body>
+
+<div id="loading">
+  <h1>달 드론 시뮬레이션</h1>
+  <div class="bar"><div class="bar-inner" id="ld-bar"></div></div>
+  <div class="status" id="ld-status">초기화 중…</div>
+</div>
+
+<div id="canvas-wrap"></div>
+
+<div id="mission-info">
+  <strong>MISSION</strong>  달 PSR 탐사 드론 개념설계<br>
+  <strong>PHASE 1</strong>  광학/NIR 탐사 ×6<br>
+  <strong>PHASE 2</strong>  레이저 충전망 ×6
+</div>
+
+<div id="drone-panels"><!-- JS로 생성 --></div>
+
+<div id="subtitle"></div>
+
+<div id="playback">
+  <button class="pb-btn" id="btn-rew"  title="처음으로">⏮</button>
+  <button class="pb-btn" id="btn-play" title="재생/정지">▶</button>
+  <button class="pb-btn" id="btn-bk"   title="-10초">⏪</button>
+  <button class="pb-btn" id="btn-fwd"  title="+10초">⏩</button>
+  <span id="time-disp">0:00 / 0:00</span>
+  <div id="scrub-wrap">
+    <div id="scrub-progress"></div>
+    <input type="range" id="scrub" min="0" max="10000" value="0" step="1">
+  </div>
+  <select id="speed-sel">
+    <option value="0.25">0.25×</option>
+    <option value="0.5">0.5×</option>
+    <option value="1" selected>1×</option>
+    <option value="2">2×</option>
+    <option value="5">5×</option>
+    <option value="20">20×</option>
+    <option value="60">60×</option>
+  </select>
+</div>
+
+
+</body>
+</html>
